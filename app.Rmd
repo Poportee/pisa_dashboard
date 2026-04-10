@@ -1,0 +1,372 @@
+---
+title: "Niveau scolaire EU"
+output:
+  flexdashboard::flex_dashboard:
+    theme:
+      bg: '#FFFFFF'
+      fg: '#222222'
+      primary: '#169976'
+      base_font:
+        google: Prompt
+      code_font:
+        google: JetBrains Mono
+    orientation: columns
+    vertical_layout: fill
+    source_code: embed
+runtime: shiny
+resource_files:
+- image_travail.png
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard);
+library(ggplot2);
+library(leaflet);
+library(RColorBrewer);
+library(rnaturalearth);
+library(plotly);
+library(tmap);
+library(dplyr);
+library(highcharter);
+library(shiny);
+library(mapview); 
+library(purrr)
+```
+
+```{r}
+path <- "C:/Users/Paul/OneDrive/Bureau/BOSSER/Mines/2A/S8/data_collection"
+# pisa_europe_all <- readRDS("pisa_europe_2015_2018_2022.rds")
+
+pisa_avg_read <- readRDS("pisa_avg_read.rds")
+
+pisa_avg_scie <- readRDS("pisa_avg_scie.rds")
+```
+```{r}
+create_europe_map <- function(data, year, value_prefix = "", value_suffix = "") {
+  pisa_year <- data %>%
+    filter(DTE == year)
+  
+  data_europe <- download_map_data("custom/europe") %>%
+    get_data_from_map()
+
+  data_europe <- data_europe %>%
+    left_join(pisa_year, by = c("iso-a3" = "CNT"))
+  
+  data_europe$value <- data_europe$Mean
+
+  data_europe <- data_europe %>%
+     filter(!(name %in% c("Iceland","Faroe Islands")))
+
+   hcmap("custom/europe",
+        data = data_europe,
+        value = "value",
+        joinBy = c("iso-a3"),
+        name = "Europe",
+        dataLabels = list(enabled = TRUE, format = '{point.name}'),
+        borderColor = "#FAFAFA", borderWidth = 0.9,
+        tooltip = list(valueDecimals = 0, valuePrefix = value_prefix,
+                       valueSuffix = value_suffix)) %>%
+        hc_colorAxis(
+          stops = color_stops(n = 5, colors = c("#F44336","#FF9800","#FFEB3B","#a7dc69","#4CAF50" )),  # Dégradé de 5 couleurs
+          min = min(data_europe$value, na.rm = TRUE),
+          max = max(data_europe$value, na.rm = TRUE)
+        ) %>%
+    hc_mapNavigation(enabled = TRUE)
+}
+
+```
+
+```{r}
+create_evolution_plot <- function(data, country1, country2, title, show_error) {
+  filtered_data <- data %>%
+    filter(CNT %in% c(country1, country2)) %>%
+    arrange(DTE)
+
+  data_country1 <- filtered_data %>% filter(CNT == country1)
+  data_country2 <- filtered_data %>% filter(CNT == country2)
+
+  series_data_country1 <- purrr::map2(data_country1$Mean, data_country1$s.e., ~list(
+    y = .x,
+    se = .y
+  ))
+
+  series_data_country2 <- purrr::map2(data_country2$Mean, data_country2$s.e., ~list(
+    y = .x,
+    se = .y
+  ))
+
+  # Créer le graphique
+  chart <- highchart() %>%
+    hc_title(text = title) %>%
+    hc_xAxis(title = list(text = "Année"), categories = unique(filtered_data$DTE)) %>%
+    hc_yAxis(title = list(text = "Score")) %>%
+
+    # Séries principales avec tooltip
+    hc_add_series(name = country1,
+                  data = series_data_country1,
+                  type = "line",
+                  marker = list(enabled = TRUE),
+                  tooltip = list(
+                    pointFormat = paste0("<b>", country1, "</b> : {point.y} (+/- {point.se})<br/>")
+                  )) %>%
+    hc_add_series(name = country2,
+                  data = series_data_country2,
+                  type = "line",
+                  marker = list(enabled = TRUE),
+                  tooltip = list(
+                    pointFormat = paste0("<b>", country2, "</b> : {point.y} (+/- {point.se})<br/>")
+                  )) %>%
+    hc_legend(enabled = TRUE) %>%
+    hc_colors(c("#169976", "#434348")) %>%
+    hc_exporting(enabled = TRUE)
+
+  # Ajouter les barres d'erreur si demandé
+  if (show_error) {
+    error_data_country1 <- data_country1 %>%
+      mutate(low = Mean - s.e., high = Mean + s.e.) %>%
+      select(low, high) %>%
+      as.list() %>%
+      transpose()
+
+    error_data_country2 <- data_country2 %>%
+      mutate(low = Mean - s.e., high = Mean + s.e.) %>%
+      select(low, high) %>%
+      as.list() %>%
+      transpose()
+
+    chart <- chart %>%
+      hc_add_series(name = paste0(country1, " erreur"),
+                    data = error_data_country1,
+                    type = "errorbar",
+                    linkedTo = ":previous",
+                    enableMouseTracking = FALSE,
+                    color = "#169976") %>%
+      hc_add_series(name = paste0(country2, " erreur"),
+                    data = error_data_country2,
+                    type = "errorbar",
+                    linkedTo = ":previous",
+                    enableMouseTracking = FALSE,
+                    color = "#434348")
+  }
+
+  return(chart)
+}
+
+```
+# Menu {data-icon="fa-home"}
+Column {data-width=500 data-height=800 style="padding-top: 0px;"}
+-----------------------------------------------------------------------
+### **<span style='color:black'>Le Projet</span>** 
+Le but de ce dashboard est de modéliser le niveau scolaire moyen des élèves européens. Afin d'analyser au mieux les données collectées, l'objectif est de pouvoir représenter de manière claire et synthétique l'évolution dans le temps du niveau par pays mais aussi de pouvoir confronter les différents pays sur une même année.
+
+Différents facteurs peuvent aussi être étudiés chez les élèves comme l'âge, le sexe, la condition sociale...
+
+### **<span style='color:black'>La collecte de données</span>** 
+Le Programme international pour le suivi des acquis des élèves (PISA) est une évaluation mise en place par l’Organisation de coopération et de développement économiques (OCDE), qui vise à mesurer les compétences des élèves de 15 ans en lecture, en sciences et en mathématiques. Cette évaluation est réalisée tous les trois ans depuis 2000.
+
+La DEPP publie les résultats du programme sous forme de notes d'information, mais les données sous formes brutes recueillies sont disponibles sur le site de l’OCDE (Organisation de coopération et de développement économiques). Il est ainsi possible de les télécharger aux formats .sas ou .spss, réparties dans sept fichiers distincts.
+
+Column {data-width=500 data-height=800 style="padding-top: 0px;"}
+-----------------------------------------------------------------------
+### {}
+![](image_travail.png)
+
+# Sélection données {data-icon="fa-database"}
+Column {data-width=600 style="padding-top: 0px;"}
+-----------------------------------------------------------------------
+### **<span style='color:black'>Population représentée par pays et par date</span>** 
+```{r}
+p <- ggplot(pisa_avg_read, aes(x = DTE, y = Freq, fill = CNT, text = paste("Pays :", CNT, "<br>Pop représentée:", Freq))) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(
+    x = "Date",
+    y = "Fréquence",
+    fill = "Pays"
+  ) +
+  theme_minimal()
+
+ggplotly(p, tooltip = "text")
+```
+
+Column {data-width=400 style="padding-top: 0px;"}
+-----------------------------------------------------------------------
+### **<span style='color:black'>Nettoyage et sélection des données</span>** 
+La grande problématique liée à la récupération des informations PISA ne réside pas dans la collecte des données en elle-même, mais plutôt dans le nettoyage, la synthèse et l'utilisation de ces données.
+
+En effet, les sept fichiers disponibles sont excessivement volumineux et contiennent une grande quantité d'informations, dont toutes ne sont pas pertinentes pour ce rapport. Il a donc d'abord été nécessaire de déterminer quelles données nous intéressaient, avant de pouvoir les télécharger pour chaque année et, enfin, les traiter.
+
+Finalement, deux bases de données ont été particulièrement utiles :
+
+- Student questionnaire data file
+
+-	Cognitive item data file
+
+Il est possible de voir dans le graphique à gauche la part estimée de la population représentée par les scores PISA de chaque pays. Ces chiffres sont basés sur le nombre d'entrées de chaque pays dans les deux documents (~600k pour les pays d'europe) ajustés par des poids d’échantillonnage afin que les statistiques soient représentatives au niveau national/international.
+
+# Optimisations {data-icon="fa-computer"}
+### **<span style='color:black'>Problématiques d'optimisation du traitement des données </span>** 
+Une fois les fichiers .sas acquis, les données ont été triées afin de ne conserver qu'une vingtaine de colonnes pertinentes dans chaque fichier (sur plus de 2500). Ensuite, les deux documents ont été fusionnés par une jointure sur l'ID des pays, en éliminant les pays non européens.
+
+Cependant, malgré la réduction significative de la base de données, le volume des informations restait trop élevé pour effectuer des lectures, des calculs ou des sauvegardes efficaces (environ 8 Go pour un seul fichier). Un algorithme a donc été développé pour traiter les fichiers par portions (chunks), afin de n'enregistrer en mémoire que les données temporaires nécessaires au nettoyage, à la fusion et à la sauvegarde, avant de passer à la suite du dataset. Grâce à cette approche, il a été possible d'exécuter le code et de créer une version exploitable des données PISA 2022. (L'algorithme étant disponible dans la partie "Annexes et Conclusion")
+
+Un autre problème rencontré concernait la variance des noms de colonnes et les différences dans les méthodes de collecte des données d'une année à l'autre. Il a donc été nécessaire d'adapter les calculs pour chaque période, avant d'uniformiser les résultats avant la fusion des dates. Cette adaptation, combinée au temps relativement long d'exécution de l'algorithme de nettoyage sur les deux fichiers d'une année (~20 minutes), a conduit à l'analyse de seulement trois années : 2015, 2018 et 2022. Toutefois, l'algorithme et le modèle utilisés sont réitérables pour les relevés disponibles depuis 2000.
+
+Dans la section "Carte des scores", il est ainsi possible de trouver la représentation du score moyen des élèves de 15 ans dans chaque pays, selon l'étude PISA. 
+Les calculs sont effectués à partir de 10 tests par élève, réalisés dans différents établissements du pays, en tenant compte d'une pondération liée à la situation géographique, à la diversité sociale, etc.
+
+# Lecture {data-navmenu="Carte des scores" data-icon="fa-book-open"}
+
+## Row {data-height="300"}
+### **<span style='color:black'> Classement </span>**
+
+```{r}
+selectInput("selected_year_read", "Année :", choices = sort(unique(pisa_avg_read$DTE), decreasing = TRUE), selected = 2022)
+```
+
+```{r}
+renderTable({
+  pisa_year <- pisa_avg_read %>%
+    filter(DTE == input$selected_year_read) %>%
+    arrange(desc(Mean)) %>%
+    mutate(Rang = row_number()) %>% 
+    select(Rang, CNT, Mean) %>%
+    rename("Pays" = CNT, "Score" = Mean)
+  pisa_year
+})
+```
+
+## Row {data-height="300"}
+### **<span style='color:black'>Score moyen de lecture </span>**  
+```{r}
+renderHighchart({
+  create_europe_map(pisa_avg_read, input$selected_year_read, value_prefix = "", value_suffix = "")
+})
+```
+ 
+# Sciences {data-navmenu="Carte des scores" data-icon="fa-flask"}
+## Row {data-height="10"}
+### **<span style='color:black'> Classement </span>** 
+
+```{r}
+selectInput("selected_year_scie", "Année :", choices = sort(unique(pisa_avg_scie$DTE), decreasing = TRUE), selected = 2022)
+```
+
+```{r}
+renderTable({
+  pisa_year <- pisa_avg_scie %>%
+    filter(DTE == input$selected_year_scie) %>%
+    arrange(desc(Mean)) %>%
+    mutate(Rang = row_number()) %>% 
+    select(Rang, CNT, Mean) %>%
+    rename("Pays" = CNT, "Score" = Mean)
+  pisa_year
+})
+```
+
+## Row {data-height="10"}
+### **<span style='color:black'>Score moyen en sciences </span>**  
+```{r}
+renderHighchart({
+  create_europe_map(pisa_avg_scie, input$selected_year_scie, value_prefix = "", value_suffix = "")
+})
+```
+
+# Lecture {data-navmenu="Evolution par pays" data-icon="fa-book-open"}
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+### **<span style='color:black'> Options </span>**
+```{r}
+  selectInput("selected_first_cnt_read", "Pays 1 :", choices = sort(unique(pisa_avg_read$CNT)), selected = "FRA")
+
+  selectInput("selected_second_cnt_read", "Pays 2 :",choices = sort(unique(pisa_avg_read$CNT)),selected = "ESP")
+  
+  checkboxInput("show_error_read", "Affichage de l'erreur potentielle", value = FALSE)
+```
+
+### **<span style='color:black'> Commentaire </span>**
+Non pas un, mais dix tests différents sont effectués sur tous les élèves. De plus, une pondération du score des élèves par établissement est appliquée en fonction des zones géographiques et de la diversité sociale de l’établissement. 
+
+Ainsi, tous ces facteurs entraînent une marge d’erreur à prendre en compte lors du calcul des résultats, qu’il est aisni possible de faire apparaître sur ce graphique.
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+### **<span style='color:black'> Evolution </span>**
+```{r}
+renderHighchart({
+  create_evolution_plot(
+    pisa_avg_read, 
+    input$selected_first_cnt_read, 
+    input$selected_second_cnt_read,
+    "",
+    show_error = input$show_error_read
+  )
+})
+
+```
+
+# Sciences {data-navmenu="Evolution par pays" data-icon="fa-flask"}
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+### **<span style='color:black'> Options </span>**
+```{r}
+   selectInput("selected_first_cnt_scie", "Pays 1 :",choices = sort(unique(pisa_avg_scie$CNT)),selected = "FRA")
+
+   selectInput("selected_second_cnt_scie", "Pays 2 :",choices = sort(unique(pisa_avg_scie$CNT)),selected = "ESP")
+   
+   checkboxInput("show_error_scie", "Affichage de l'erreur potentielle", value = FALSE)
+```
+ 
+### **<span style='color:black'> Commentaire </span>**
+
+Non pas un, mais dix tests différents sont effectués sur tous les élèves. De plus, une pondération du score des élèves par établissement est appliquée en fonction des zones géographiques et de la diversité sociale de l’établissement. 
+
+Ainsi, tous ces facteurs entraînent une marge d’erreur à prendre en compte lors du calcul des résultats, qu’il est aisni possible de faire apparaître sur ce graphique.
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+### **<span style='color:black'> Evolution </span>**
+```{r}
+renderHighchart({
+  create_evolution_plot(
+    pisa_avg_scie, 
+    input$selected_first_cnt_scie, 
+    input$selected_second_cnt_scie,
+    "",
+    show_error = input$show_error_scie
+  )
+})
+```
+
+
+
+# 📄 Annexes et Conclusion
+
+Column {data-width=400}
+-----------------------------------------------------------------------
+### **<span style='color:black'>Documents </span>**
+
+[📄 Rapport.pdf](https://drive.google.com/file/d/1eWCtwAgrdYJ2YJIS720Akxtqr7RkKLsg/view?usp=drive_link)
+
+[📄 Nettoyage-données.r](https://drive.google.com/file/d/1PtJd-yhK6YJvPwqd6yqNGx8qVq7BCXBd/view?usp=sharing)
+
+[📄 Data-set-original](https://drive.google.com/file/d/1iNYLeqJ9dWjswkMpbmGuvXauByj_tQin/view?usp=sharing)
+
+[📄 Data-set-nettoyé-fusionné.csv](https://drive.google.com/file/d/1bPr9Jpo2HkAX_M3Z32yx3AGhhuIxbTfY/view?usp=sharing)
+
+
+Column {data-width=600}
+-----------------------------------------------------------------------
+
+### **<span style='color:black'>Conclusion</span>**
+
+Le projet Niveau scolaire EU a permis d’aborder de manière structurée et méthodique l’analyse comparative du niveau scolaire moyen des élèves européens à partir des données PISA.
+
+Il a démontré qu’il est possible de transformer un ensemble de données complexes et volumineux en outils d’analyse visuels et interactifs, capables de mettre en évidence des tendances significatives dans le domaine de la performance scolaire européenne. Toutefois, du fait des dataset très volumineux et du temps de calcul allongé, il n'a été possible de traiter, dans ce tableau de bord, que les années 2015, 2018 et 2022, en omettant l'étude de facteurs clés comme l'âge, le sexe, etc. Une amélioration quasi immédiate de ce rendu serait ainsi de prendre en compte ces paramètres.
+
+La démarche méthodique adoptée, allant de la collecte rigoureuse des données jusqu’à leur visualisation sur un dashboard déployé en ligne, constitue néamoins une base solide pour des analyses futures à la fois descriptives et prédictives.
+
+
+
+ 

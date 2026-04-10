@@ -1,0 +1,11 @@
+dplyr
+haven
+shiny
+mapview
+tmap
+intsvy
+ggplot2
+leaflet
+purrr
+highcharter
+flexdashboard
