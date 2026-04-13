@@ -1,4 +1,4 @@
-# PISA European Explorer : Pipeline ETL & Dashboard
+# PISA European Dashboard
 
 🔗 **[Lien vers la démo interactive](https://paul-laporte.shinyapps.io/Scolaire-data)** 
 
